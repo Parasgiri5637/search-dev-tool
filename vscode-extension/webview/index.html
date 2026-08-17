@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flutter Code Map</title>
+  <link rel="stylesheet" href="{{styleUri}}">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <h1 class="header-title">Flutter Code Map</h1>
+        <span id="project-stats" class="stats-badge">Ready</span>
+      </div>
+      <div class="header-actions">
+        <button id="refresh-btn" class="icon-btn" title="Re-index workspace">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Query Box -->
+    <section class="search-section">
+      <label for="query-input" class="search-prompt">What do you want to know about your codebase?</label>
+      <div class="search-input-wrapper">
+        <input
+          type="text"
+          id="query-input"
+          class="search-input"
+          placeholder="Search or ask about your code (e.g. Who uses LoginPage?)..."
+          autocomplete="off"
+        />
+        <button id="submit-btn" class="search-submit-btn" title="Submit query">↵</button>
+      </div>
+
+      <!-- Suggested Questions -->
+      <div class="suggestions-wrapper">
+        <span class="suggestions-label">Suggested questions:</span>
+        <div id="suggested-chips" class="chip-container">
+          <button class="chip" data-query="Who uses LoginPage?">Who uses LoginPage?</button>
+          <button class="chip" data-query="Where is AuthBloc?">Where is AuthBloc?</button>
+          <button class="chip" data-query="What does LoginPage depend on?">What does LoginPage depend on?</button>
+          <button class="chip" data-query="Show login flow">Show login flow</button>
+          <button class="chip" data-query="List widgets">List widgets</button>
+          <button class="chip" data-query="List routes">List routes</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Loading State -->
+    <div id="loading-indicator" class="loading-state hidden">
+      <div class="spinner"></div>
+      <span id="loading-text">Analyzing codebase...</span>
+    </div>
+
+    <!-- Error Banner -->
+    <div id="error-banner" class="error-banner hidden">
+      <span id="error-message"></span>
+    </div>
+
+    <!-- Results Section -->
+    <main id="results-section" class="results-section hidden">
+      <div class="results-header">
+        <h2 id="result-title" class="result-title">Results</h2>
+        <span id="result-intent-badge" class="intent-badge"></span>
+      </div>
+
+      <!-- File Location Banner -->
+      <div id="result-file-wrapper" class="file-location-box hidden">
+        <span class="file-label">File:</span>
+        <a id="result-file-link" class="file-link" href="#"></a>
+      </div>
+
+      <!-- Summary -->
+      <div id="result-summary" class="result-summary"></div>
+
+      <!-- Call Flow / Hierarchy Graph (Milestone 11) -->
+      <div id="flow-container" class="flow-container hidden">
+        <h3 class="section-title">Call Flow Chain</h3>
+        <div id="flow-steps" class="flow-steps"></div>
+      </div>
+
+      <!-- Relationships Grid -->
+      <div class="relations-grid">
+        <!-- Depends On -->
+        <div id="depends-on-card" class="relation-card hidden">
+          <h3 class="relation-title">Depends on</h3>
+          <ul id="depends-on-list" class="relation-list"></ul>
+        </div>
+
+        <!-- Calls -->
+        <div id="calls-card" class="relation-card hidden">
+          <h3 class="relation-title">Calls</h3>
+          <ul id="calls-list" class="relation-list"></ul>
+        </div>
+
+        <!-- Used By -->
+        <div id="used-by-card" class="relation-card hidden">
+          <h3 class="relation-title">Used by</h3>
+          <ul id="used-by-list" class="relation-list"></ul>
+        </div>
+      </div>
+
+      <!-- Follow-up Questions -->
+      <div id="followups-wrapper" class="followups-wrapper hidden">
+        <h3 class="followup-title">Follow-up questions</h3>
+        <div id="followup-chips" class="chip-container"></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="{{scriptUri}}"></script>
+</body>
+</html>

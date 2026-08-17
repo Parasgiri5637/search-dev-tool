@@ -1,0 +1,18 @@
+# Dart & Flutter
+.dart_tool/
+.packages
+build/
+.pub-cache/
+.pub/
+
+# Node & VS Code Extension
+node_modules/
+vscode-extension/node_modules/
+*.vsix
+
+# IDE & OS
+.DS_Store
+.idea/
+.vscode-test/
+*.swp
+*.log
