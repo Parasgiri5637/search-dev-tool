@@ -4,6 +4,15 @@
   "description": "AST-based code map, knowledge graph, and query engine for Flutter & Dart codebases without requiring AI.",
   "version": "0.1.0",
   "publisher": "flutter-code-map",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Parasgiri5637/search-dev-tool.git"
+  },
+  "homepage": "https://github.com/Parasgiri5637/search-dev-tool#readme",
+  "bugs": {
+    "url": "https://github.com/Parasgiri5637/search-dev-tool/issues"
+  },
+  "license": "MIT",
   "engines": {
     "vscode": "^1.80.0"
   },
@@ -29,11 +38,12 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "package": "vsce package"
+    "package": "vsce package --no-dependencies"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.80.0",
+    "@vscode/vsce": "^3.9.2",
     "typescript": "^5.3.0"
   }
 }
