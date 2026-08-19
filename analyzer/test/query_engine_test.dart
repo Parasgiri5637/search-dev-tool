@@ -108,5 +108,11 @@ void main() {
       expect(res.intent, equals('list_components'));
       expect(res.nodes.any((n) => n.label == 'LoginPage'), isTrue);
     });
+
+    test('answers "what is logic in LoginPage"', () {
+      final res = engine.execute('what is logic in LoginPage');
+      expect(res.intent, equals('explain_logic'));
+      expect(res.logicBreakdown.isNotEmpty, isTrue);
+    });
   });
 }

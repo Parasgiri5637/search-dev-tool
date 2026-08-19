@@ -18,6 +18,13 @@
   const resultFileLink = document.getElementById('result-file-link');
   const resultSummary = document.getElementById('result-summary');
 
+  const logicContainer = document.getElementById('logic-container');
+  const logicList = document.getElementById('logic-list');
+
+  const snippetContainer = document.getElementById('snippet-container');
+  const snippetCode = document.getElementById('snippet-code');
+  const copySnippetBtn = document.getElementById('copy-snippet-btn');
+
   const flowContainer = document.getElementById('flow-container');
   const flowSteps = document.getElementById('flow-steps');
 
@@ -62,6 +69,16 @@
     const chip = e.target.closest('.chip');
     if (chip && chip.dataset.query) {
       submitQuery(chip.dataset.query);
+    }
+  });
+
+  copySnippetBtn.addEventListener('click', () => {
+    if (snippetCode.textContent) {
+      navigator.clipboard.writeText(snippetCode.textContent);
+      copySnippetBtn.textContent = 'Copied!';
+      setTimeout(() => {
+        copySnippetBtn.textContent = 'Copy';
+      }, 1500);
     }
   });
 
@@ -118,6 +135,28 @@
       };
     } else {
       resultFileWrapper.classList.add('hidden');
+    }
+
+    // Logic Breakdown
+    if (res.logicBreakdown && res.logicBreakdown.length > 0) {
+      logicContainer.classList.remove('hidden');
+      logicList.innerHTML = '';
+      res.logicBreakdown.forEach((item) => {
+        const li = document.createElement('li');
+        li.className = 'logic-item';
+        li.textContent = item;
+        logicList.appendChild(li);
+      });
+    } else {
+      logicContainer.classList.add('hidden');
+    }
+
+    // Code Snippet
+    if (res.codeSnippet && res.codeSnippet.trim().length > 0) {
+      snippetContainer.classList.remove('hidden');
+      snippetCode.textContent = res.codeSnippet;
+    } else {
+      snippetContainer.classList.add('hidden');
     }
 
     // Call Flow Chain (Milestone 11)
@@ -225,6 +264,5 @@
     }
   });
 
-  // Notify extension that webview is ready
   vscode.postMessage({ command: 'ready' });
 })();

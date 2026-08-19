@@ -31,7 +31,7 @@
           type="text"
           id="query-input"
           class="search-input"
-          placeholder="Search or ask about your code (e.g. Who uses LoginPage?)..."
+          placeholder="Search or ask about your code (e.g. What is logic in LoginPage?)..."
           autocomplete="off"
         />
         <button id="submit-btn" class="search-submit-btn" title="Submit query">↵</button>
@@ -41,10 +41,10 @@
       <div class="suggestions-wrapper">
         <span class="suggestions-label">Suggested questions:</span>
         <div id="suggested-chips" class="chip-container">
-          <button class="chip" data-query="Who uses LoginPage?">Who uses LoginPage?</button>
-          <button class="chip" data-query="Where is AuthBloc?">Where is AuthBloc?</button>
-          <button class="chip" data-query="What does LoginPage depend on?">What does LoginPage depend on?</button>
+          <button class="chip" data-query="What is logic in LoginPage?">What is logic in LoginPage?</button>
           <button class="chip" data-query="Show login flow">Show login flow</button>
+          <button class="chip" data-query="Who uses AuthBloc?">Who uses AuthBloc?</button>
+          <button class="chip" data-query="What does LoginPage depend on?">What does LoginPage depend on?</button>
           <button class="chip" data-query="List widgets">List widgets</button>
           <button class="chip" data-query="List routes">List routes</button>
         </div>
@@ -77,6 +77,21 @@
 
       <!-- Summary -->
       <div id="result-summary" class="result-summary"></div>
+
+      <!-- Logic Breakdown Section -->
+      <div id="logic-container" class="logic-container hidden">
+        <h3 class="section-title">Code Logic & Architecture</h3>
+        <ul id="logic-list" class="logic-list"></ul>
+      </div>
+
+      <!-- Code Snippet Viewer -->
+      <div id="snippet-container" class="snippet-container hidden">
+        <div class="snippet-header">
+          <span class="snippet-label">Source Code</span>
+          <button id="copy-snippet-btn" class="copy-btn">Copy</button>
+        </div>
+        <pre><code id="snippet-code" class="snippet-code"></code></pre>
+      </div>
 
       <!-- Call Flow / Hierarchy Graph (Milestone 11) -->
       <div id="flow-container" class="flow-container hidden">

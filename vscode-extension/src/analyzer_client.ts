@@ -28,6 +28,8 @@ export interface QueryResultPayload {
     endLine: number;
     endColumn: number;
   };
+  codeSnippet?: string;
+  logicBreakdown?: string[];
   dependsOn?: Array<{ id: string; label: string; kind: string; location?: any }>;
   calls?: Array<{ id: string; label: string; kind: string; location?: any }>;
   usedBy?: Array<{ id: string; label: string; kind: string; location?: any }>;

@@ -80,6 +80,13 @@ void main() {
       final q4 = engine.query('Show login flow');
       expect(q4.intent, equals('flow'));
       expect(q4.callChain.length, greaterThanOrEqualTo(2));
+
+      // 5. Explain logic
+      final q5 = engine.query('what is logic in LoginPage');
+      expect(q5.intent, equals('explain_logic'));
+      expect(q5.codeSnippet, isNotNull);
+      expect(q5.codeSnippet, contains('class LoginPage'));
+      expect(q5.logicBreakdown.isNotEmpty, isTrue);
     });
   });
 }

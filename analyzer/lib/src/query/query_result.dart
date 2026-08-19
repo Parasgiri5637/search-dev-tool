@@ -10,6 +10,8 @@ class QueryResult {
   final String summary;
   final String? directAnswer;
   final SourceLocation? sourceLocation;
+  final String? codeSnippet;
+  final List<String> logicBreakdown;
   final List<GraphNode> dependsOn;
   final List<GraphNode> calls;
   final List<GraphNode> usedBy;
@@ -25,6 +27,8 @@ class QueryResult {
     required this.summary,
     this.directAnswer,
     this.sourceLocation,
+    this.codeSnippet,
+    this.logicBreakdown = const [],
     this.dependsOn = const [],
     this.calls = const [],
     this.usedBy = const [],
@@ -41,6 +45,8 @@ class QueryResult {
         'summary': summary,
         'directAnswer': directAnswer,
         'sourceLocation': sourceLocation?.toJson(),
+        'codeSnippet': codeSnippet,
+        'logicBreakdown': logicBreakdown,
         'dependsOn': dependsOn.map((n) => n.toJson()).toList(),
         'calls': calls.map((n) => n.toJson()).toList(),
         'usedBy': usedBy.map((n) => n.toJson()).toList(),
@@ -61,6 +67,11 @@ class QueryResult {
           ? SourceLocation.fromJson(
               json['sourceLocation'] as Map<String, dynamic>)
           : null,
+      codeSnippet: json['codeSnippet'] as String?,
+      logicBreakdown: (json['logicBreakdown'] as List<dynamic>?)
+              ?.map((s) => s as String)
+              .toList() ??
+          const [],
       dependsOn: (json['dependsOn'] as List<dynamic>?)
               ?.map((n) => GraphNode.fromJson(n as Map<String, dynamic>))
               .toList() ??

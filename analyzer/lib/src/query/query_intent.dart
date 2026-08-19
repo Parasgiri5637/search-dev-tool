@@ -8,6 +8,7 @@ enum QueryIntentKind {
   showFlow,
   relatedTo,
   listComponents,
+  explainLogic,
   generalSearch,
 }
 

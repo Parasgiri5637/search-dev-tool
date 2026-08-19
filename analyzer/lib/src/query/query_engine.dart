@@ -1,3 +1,4 @@
+import 'dart:io';
 import '../graph/knowledge_graph.dart';
 import '../models/graph_edge.dart';
 import '../models/graph_node.dart';
@@ -23,7 +24,6 @@ class QueryEngine {
 
     final candidates = <String>{clean};
 
-    // Remove punctuation
     final words = clean
         .split(RegExp(r'[\s_.\-]+'))
         .where((w) => w.isNotEmpty)
@@ -64,13 +64,57 @@ class QueryEngine {
     var clean = query.trim();
     final lower = clean.toLowerCase();
 
-    // Strip leading conversational fillers: "find out where is", "tell me where is", "show me", "please", etc.
+    // Strip leading conversational fillers
     final stripped = lower
         .replaceFirst(RegExp(r'^(?:can you\s+|please\s+|kindly\s+)', caseSensitive: false), '')
         .replaceFirst(RegExp(r'^(?:find out\s+|tell me\s+|show me\s+)', caseSensitive: false), '')
         .trim();
 
-    // 1. Where is X? / Where is the X? / Locate X / Find X
+    // 1. What does X depend on? / Show dependencies of X
+    final depsMatch = RegExp(
+      r'^(?:what does\s+(.+?)\s+depend on|show dependencies of\s+(.+?)|dependencies of\s+(.+?))\??$',
+      caseSensitive: false,
+    ).firstMatch(stripped);
+    if (depsMatch != null) {
+      final target = depsMatch.group(1) ??
+          depsMatch.group(2) ??
+          depsMatch.group(3)!;
+      return QueryIntent(
+        kind: QueryIntentKind.whatDependsOn,
+        target: target.trim(),
+        rawQuery: query,
+      );
+    }
+
+    // 2. What does X call?
+    final whatCallsMatch = RegExp(
+      r'^(?:what does\s+(.+?)\s+call|what does\s+(.+?)\s+invoke)\??$',
+      caseSensitive: false,
+    ).firstMatch(stripped);
+    if (whatCallsMatch != null) {
+      final target = whatCallsMatch.group(1) ?? whatCallsMatch.group(2)!;
+      return QueryIntent(
+        kind: QueryIntentKind.whatCalls,
+        target: target.trim(),
+        rawQuery: query,
+      );
+    }
+
+    // 3. Explain logic / How does X work / What is logic in X / What does X do
+    final logicMatch = RegExp(
+      r'^(?:what is(?: the)? logic (?:in|of)|how does\s+(.+?)\s+work|what does\s+(.+?)\s+do|explain(?: the logic of)?)\s+(.+?)\??$',
+      caseSensitive: false,
+    ).firstMatch(stripped);
+    if (logicMatch != null) {
+      final target = logicMatch.group(1) ?? logicMatch.group(2) ?? logicMatch.group(3)!;
+      return QueryIntent(
+        kind: QueryIntentKind.explainLogic,
+        target: target.trim(),
+        rawQuery: query,
+      );
+    }
+
+    // 4. Where is X? / Locate X / Find X
     final whereMatch = RegExp(
       r'^(?:where is(?:\s+the)?|where is defined|locate|find(?:\s+the)?)\s+(.+?)\??$',
       caseSensitive: false,
@@ -83,7 +127,7 @@ class QueryEngine {
       );
     }
 
-    // 2. Who uses X? / Who depends on X?
+    // 5. Who uses X? / Who depends on X?
     final whoUsesMatch = RegExp(
       r'^(?:who uses(?:\s+the)?|who depends on(?:\s+the)?|what uses(?:\s+the)?)\s+(.+?)\??$',
       caseSensitive: false,
@@ -104,49 +148,6 @@ class QueryEngine {
       return QueryIntent(
         kind: QueryIntentKind.whoUses,
         target: whereUsedMatch.group(1)!.trim(),
-        rawQuery: query,
-      );
-    }
-
-    // 3. What does X depend on? / Show dependencies of X
-    final depsMatch = RegExp(
-      r'^(?:what does\s+(.+?)\s+depend on|show dependencies of\s+(.+?)|dependencies of\s+(.+?))\??$',
-      caseSensitive: false,
-    ).firstMatch(stripped);
-    if (depsMatch != null) {
-      final target = depsMatch.group(1) ??
-          depsMatch.group(2) ??
-          depsMatch.group(3)!;
-      return QueryIntent(
-        kind: QueryIntentKind.whatDependsOn,
-        target: target.trim(),
-        rawQuery: query,
-      );
-    }
-
-    // 4. Who calls X? / What calls X?
-    final whoCallsMatch = RegExp(
-      r'^(?:who calls(?:\s+the)?|what calls(?:\s+the)?)\s+(.+?)\??$',
-      caseSensitive: false,
-    ).firstMatch(stripped);
-    if (whoCallsMatch != null) {
-      return QueryIntent(
-        kind: QueryIntentKind.whoCalls,
-        target: whoCallsMatch.group(1)!.trim(),
-        rawQuery: query,
-      );
-    }
-
-    // 5. What does X call?
-    final whatCallsMatch = RegExp(
-      r'^(?:what does\s+(.+?)\s+call|what does\s+(.+?)\s+invoke)\??$',
-      caseSensitive: false,
-    ).firstMatch(stripped);
-    if (whatCallsMatch != null) {
-      final target = whatCallsMatch.group(1) ?? whatCallsMatch.group(2)!;
-      return QueryIntent(
-        kind: QueryIntentKind.whatCalls,
-        target: target.trim(),
         rawQuery: query,
       );
     }
@@ -178,7 +179,7 @@ class QueryEngine {
       );
     }
 
-    // 8. List components (widgets / routes / blocs / providers)
+    // 8. List components
     if (lower.contains('list widgets') || lower.contains('show widgets')) {
       return QueryIntent(
         kind: QueryIntentKind.listComponents,
@@ -216,6 +217,8 @@ class QueryEngine {
     final intent = parseIntent(query);
 
     switch (intent.kind) {
+      case QueryIntentKind.explainLogic:
+        return _handleExplainLogic(intent);
       case QueryIntentKind.whereIs:
         return _handleWhereIs(intent);
       case QueryIntentKind.whoUses:
@@ -247,7 +250,6 @@ class QueryEngine {
       if (byQ.isNotEmpty) return byQ;
     }
 
-    // Fuzzy search across candidates
     for (final cand in candidates) {
       final fuzzy = symbolTable.search(cand);
       if (fuzzy.isNotEmpty) return fuzzy;
@@ -269,6 +271,137 @@ class QueryEngine {
     }
 
     return const [];
+  }
+
+  String? _readSourceSnippet(String filePath, int offset, int length) {
+    try {
+      final file = File(filePath);
+      if (!file.existsSync()) return null;
+      final text = file.readAsStringSync();
+      if (offset >= 0 && offset + length <= text.length) {
+        return text.substring(offset, offset + length);
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  QueryResult _handleExplainLogic(QueryIntent intent) {
+    final target = intent.target;
+    final symbols = _lookupSymbolsForTarget(target);
+
+    if (symbols.isEmpty) {
+      final nodes = _lookupNodesForTarget(target);
+      if (nodes.isEmpty) {
+        return QueryResult(
+          query: intent.rawQuery,
+          intent: 'explain_logic',
+          title: 'Code Logic Not Found',
+          summary: 'Could not find component or symbol matching "$target" to explain.',
+        );
+      }
+      final node = nodes.first;
+      return _buildLogicResultForNode(node, intent.rawQuery);
+    }
+
+    final symbol = symbols.first;
+    final node = graph.getNode(symbol.id);
+
+    final logicBreakdown = <String>[];
+    String? snippet;
+
+    if (symbol.location.length > 0) {
+      snippet = _readSourceSnippet(
+        symbol.location.filePath,
+        symbol.location.offset,
+        symbol.location.length,
+      );
+    }
+
+    // Breakdown structure
+    final meta = symbol.metadata;
+    final superclass = meta['superclass'] as String?;
+    final mixins = meta['mixins'] as List<dynamic>?;
+    final interfaces = meta['interfaces'] as List<dynamic>?;
+
+    if (superclass != null) {
+      logicBreakdown.add('Inheritance: Extends $superclass${mixins != null && mixins.isNotEmpty ? ' with ${mixins.join(", ")}' : ''}${interfaces != null && interfaces.isNotEmpty ? ' implementing ${interfaces.join(", ")}' : ''}.');
+    }
+
+    // Calls and interactions
+    final outgoingCalls = node != null
+        ? graph.getOutgoingEdges(node.id, kind: EdgeKind.calls)
+        : <GraphEdge>[];
+
+    final containedMembers = node != null
+        ? graph.getOutgoingEdges(node.id, kind: EdgeKind.contains)
+        : <GraphEdge>[];
+
+    for (final member in containedMembers) {
+      final memberCalls = graph.getOutgoingEdges(member.targetId, kind: EdgeKind.calls);
+      outgoingCalls.addAll(memberCalls);
+    }
+
+    if (outgoingCalls.isNotEmpty) {
+      final calledNames = outgoingCalls
+          .map((e) => (e.metadata['symbolName'] as String?) ?? e.targetId.split('#').last)
+          .toSet()
+          .toList();
+      logicBreakdown.add('Execution & Invocations: Makes external calls to: ${calledNames.join(', ')}.');
+    }
+
+    final createdInstances = node != null
+        ? graph.getOutgoingEdges(node.id, kind: EdgeKind.creates)
+        : <GraphEdge>[];
+    if (createdInstances.isNotEmpty) {
+      final createdNames = createdInstances
+          .map((e) => (e.metadata['symbolName'] as String?) ?? e.targetId.split('#').last)
+          .toSet()
+          .toList();
+      logicBreakdown.add('Instantiations: Creates child instances of: ${createdNames.join(', ')}.');
+    }
+
+    if (meta['stateManagement'] != null) {
+      logicBreakdown.add('State Management: Operates as a ${meta['stateManagement']} state container.');
+    }
+
+    final summary = logicBreakdown.isNotEmpty
+        ? '${symbol.qualifiedName} logic overview:\n• ${logicBreakdown.join('\n• ')}'
+        : '${symbol.qualifiedName} is declared at ${symbol.location.displayString}.';
+
+    return QueryResult(
+      query: intent.rawQuery,
+      intent: 'explain_logic',
+      title: 'Logic Breakdown: ${symbol.qualifiedName}',
+      summary: summary,
+      directAnswer: summary,
+      sourceLocation: symbol.location,
+      codeSnippet: snippet,
+      logicBreakdown: logicBreakdown,
+      calls: outgoingCalls.map((e) => graph.getNode(e.targetId)).whereType<GraphNode>().toList(),
+      suggestedFollowups: [
+        'Who uses ${symbol.name}?',
+        'What does ${symbol.name} depend on?',
+        'Show ${symbol.name.toLowerCase()} flow',
+      ],
+    );
+  }
+
+  QueryResult _buildLogicResultForNode(GraphNode node, String rawQuery) {
+    final calls = graph.getOutgoingEdges(node.id, kind: EdgeKind.calls);
+    final logicBreakdown = <String>[
+      'Node Kind: ${node.kind.name}',
+      if (node.metadata['widgetType'] != null) 'Widget Type: ${node.metadata['widgetType']}',
+      if (calls.isNotEmpty) 'Calls: ${calls.map((e) => e.targetId).join(', ')}',
+    ];
+
+    return QueryResult(
+      query: rawQuery,
+      intent: 'explain_logic',
+      title: 'Logic Breakdown: ${node.label}',
+      summary: logicBreakdown.join('\n• '),
+      sourceLocation: node.location,
+      logicBreakdown: logicBreakdown,
+    );
   }
 
   QueryResult _handleWhereIs(QueryIntent intent) {
@@ -309,6 +442,15 @@ class QueryEngine {
     final dependsOn = node != null ? graph.getDependencies(node.id).toList() : <GraphNode>[];
     final usedBy = node != null ? graph.getDependents(node.id).toList() : <GraphNode>[];
 
+    String? snippet;
+    if (symbol.location.length > 0) {
+      snippet = _readSourceSnippet(
+        symbol.location.filePath,
+        symbol.location.offset,
+        symbol.location.length,
+      );
+    }
+
     return QueryResult(
       query: intent.rawQuery,
       intent: 'where_is',
@@ -316,12 +458,13 @@ class QueryEngine {
       summary: '${symbol.kind.name} defined in ${symbol.location.displayString}',
       directAnswer: symbol.location.displayString,
       sourceLocation: symbol.location,
+      codeSnippet: snippet,
       dependsOn: dependsOn,
       usedBy: usedBy,
       suggestedFollowups: [
+        'What is logic in ${symbol.name}?',
         'Who uses ${symbol.name}?',
         'What does ${symbol.name} depend on?',
-        'What does ${symbol.name} call?',
       ],
     );
   }
@@ -353,6 +496,7 @@ class QueryEngine {
       usedBy: dependents,
       nodes: dependents,
       suggestedFollowups: [
+        'What is logic in ${primary.label}?',
         'Where is ${primary.label}?',
         'What does ${primary.label} depend on?',
       ],
@@ -392,6 +536,7 @@ class QueryEngine {
       calls: calls,
       nodes: dependencies,
       suggestedFollowups: [
+        'What is logic in ${primary.label}?',
         'Who uses ${primary.label}?',
         'What does ${primary.label} call?',
       ],
@@ -429,6 +574,7 @@ class QueryEngine {
       nodes: calledNodes,
       edges: outgoingCallEdges,
       suggestedFollowups: [
+        'What is logic in ${primary.label}?',
         'Who calls ${primary.label}?',
         'Where is ${primary.label}?',
       ],
@@ -466,6 +612,7 @@ class QueryEngine {
       nodes: callerNodes,
       edges: incomingCallEdges,
       suggestedFollowups: [
+        'What is logic in ${primary.label}?',
         'What does ${primary.label} call?',
         'Where is ${primary.label}?',
       ],
@@ -473,10 +620,9 @@ class QueryEngine {
   }
 
   QueryResult _handleShowFlow(QueryIntent intent) {
-    final flowName = intent.target.toLowerCase(); // e.g. 'login'
+    final flowName = intent.target.toLowerCase();
     final symbols = _lookupSymbolsForTarget(flowName);
 
-    // Prioritize Page/Screen/View classes
     final pages = symbols.where((s) =>
         s.name.toLowerCase().endsWith('page') ||
         s.name.toLowerCase().endsWith('screen') ||
@@ -485,7 +631,6 @@ class QueryEngine {
     CodeSymbol? startSymbol;
     List<GraphEdge> callEdges = [];
 
-    // Find first symbol with active outgoing call hierarchy
     final candidateSymbols = [
       ...pages,
       ...symbols.where((s) => s.kind == SymbolKind.widgetSymbol),
@@ -540,6 +685,7 @@ class QueryEngine {
       nodes: nodesInFlow,
       edges: edgesInFlow,
       suggestedFollowups: [
+        'What is logic in ${startSymbol.name}?',
         'Who uses ${startSymbol.name}?',
         'What does ${startSymbol.name} depend on?',
       ],
@@ -569,7 +715,7 @@ class QueryEngine {
       nodes: nodes,
       suggestedFollowups: matchingSymbols
           .take(3)
-          .map((s) => 'Where is ${s.name}?')
+          .map((s) => 'What is logic in ${s.name}?')
           .toList(),
     );
   }
@@ -634,7 +780,7 @@ class QueryEngine {
       nodes: nodes,
       suggestedFollowups: symbols
           .take(3)
-          .map((s) => 'Where is ${s.name}?')
+          .map((s) => 'What is logic in ${s.name}?')
           .toList(),
     );
   }
