@@ -16,103 +16,164 @@ class QueryEngine {
     required this.symbolTable,
   });
 
+  /// Generates identifier permutations from a multi-word phrase (e.g. "cart page" -> ["CartPage", "cart_page", "cart", "Cart"]).
+  List<String> _generateCandidates(String raw) {
+    final clean = raw.trim();
+    if (clean.isEmpty) return const [];
+
+    final candidates = <String>{clean};
+
+    // Remove punctuation
+    final words = clean
+        .split(RegExp(r'[\s_.\-]+'))
+        .where((w) => w.isNotEmpty)
+        .toList();
+
+    if (words.isNotEmpty) {
+      // PascalCase: "cart page" -> "CartPage"
+      final pascal = words
+          .map((w) => w.substring(0, 1).toUpperCase() + w.substring(1).toLowerCase())
+          .join('');
+      candidates.add(pascal);
+
+      // camelCase: "cart page" -> "cartPage"
+      if (words.length > 1) {
+        final camel = words.first.toLowerCase() +
+            words
+                .skip(1)
+                .map((w) => w.substring(0, 1).toUpperCase() + w.substring(1).toLowerCase())
+                .join('');
+        candidates.add(camel);
+      }
+
+      // snake_case: "cart page" -> "cart_page"
+      candidates.add(words.map((w) => w.toLowerCase()).join('_'));
+
+      // Individual words
+      for (final w in words) {
+        candidates.add(w);
+        candidates.add(w.substring(0, 1).toUpperCase() + w.substring(1).toLowerCase());
+      }
+    }
+
+    return candidates.toList();
+  }
+
   /// Parses user question into a structured [QueryIntent].
   QueryIntent parseIntent(String query) {
-    final clean = query.trim();
+    var clean = query.trim();
     final lower = clean.toLowerCase();
 
-    // 1. Where is X?
+    // Strip leading conversational fillers: "find out where is", "tell me where is", "show me", "please", etc.
+    final stripped = lower
+        .replaceFirst(RegExp(r'^(?:can you\s+|please\s+|kindly\s+)', caseSensitive: false), '')
+        .replaceFirst(RegExp(r'^(?:find out\s+|tell me\s+|show me\s+)', caseSensitive: false), '')
+        .trim();
+
+    // 1. Where is X? / Where is the X? / Locate X / Find X
     final whereMatch = RegExp(
-      r'^(?:where is|where is defined|locate|find)\s+([a-zA-Z0-9_.]+)\??$',
+      r'^(?:where is(?:\s+the)?|where is defined|locate|find(?:\s+the)?)\s+(.+?)\??$',
       caseSensitive: false,
-    ).firstMatch(lower);
+    ).firstMatch(stripped);
     if (whereMatch != null) {
       return QueryIntent(
         kind: QueryIntentKind.whereIs,
-        target: whereMatch.group(1)!,
+        target: whereMatch.group(1)!.trim(),
         rawQuery: query,
       );
     }
 
     // 2. Who uses X? / Who depends on X?
     final whoUsesMatch = RegExp(
-      r'^(?:who uses|who depends on|what uses|where is used)\s+([a-zA-Z0-9_.]+)\??$',
+      r'^(?:who uses(?:\s+the)?|who depends on(?:\s+the)?|what uses(?:\s+the)?)\s+(.+?)\??$',
       caseSensitive: false,
-    ).firstMatch(lower);
+    ).firstMatch(stripped);
     if (whoUsesMatch != null) {
       return QueryIntent(
         kind: QueryIntentKind.whoUses,
-        target: whoUsesMatch.group(1)!,
+        target: whoUsesMatch.group(1)!.trim(),
+        rawQuery: query,
+      );
+    }
+
+    final whereUsedMatch = RegExp(
+      r'^(?:where is(?:\s+the)?)\s+(.+?)\s+used\??$',
+      caseSensitive: false,
+    ).firstMatch(stripped);
+    if (whereUsedMatch != null) {
+      return QueryIntent(
+        kind: QueryIntentKind.whoUses,
+        target: whereUsedMatch.group(1)!.trim(),
         rawQuery: query,
       );
     }
 
     // 3. What does X depend on? / Show dependencies of X
     final depsMatch = RegExp(
-      r'^(?:what does\s+([a-zA-Z0-9_.]+)\s+depend on|show dependencies of\s+([a-zA-Z0-9_.]+)|dependencies of\s+([a-zA-Z0-9_.]+))\??$',
+      r'^(?:what does\s+(.+?)\s+depend on|show dependencies of\s+(.+?)|dependencies of\s+(.+?))\??$',
       caseSensitive: false,
-    ).firstMatch(lower);
+    ).firstMatch(stripped);
     if (depsMatch != null) {
       final target = depsMatch.group(1) ??
           depsMatch.group(2) ??
           depsMatch.group(3)!;
       return QueryIntent(
         kind: QueryIntentKind.whatDependsOn,
-        target: target,
+        target: target.trim(),
         rawQuery: query,
       );
     }
 
     // 4. Who calls X? / What calls X?
     final whoCallsMatch = RegExp(
-      r'^(?:who calls|what calls)\s+([a-zA-Z0-9_.]+)\??$',
+      r'^(?:who calls(?:\s+the)?|what calls(?:\s+the)?)\s+(.+?)\??$',
       caseSensitive: false,
-    ).firstMatch(lower);
+    ).firstMatch(stripped);
     if (whoCallsMatch != null) {
       return QueryIntent(
         kind: QueryIntentKind.whoCalls,
-        target: whoCallsMatch.group(1)!,
+        target: whoCallsMatch.group(1)!.trim(),
         rawQuery: query,
       );
     }
 
     // 5. What does X call?
     final whatCallsMatch = RegExp(
-      r'^(?:what does\s+([a-zA-Z0-9_.]+)\s+call|what does\s+([a-zA-Z0-9_.]+)\s+invoke)\??$',
+      r'^(?:what does\s+(.+?)\s+call|what does\s+(.+?)\s+invoke)\??$',
       caseSensitive: false,
-    ).firstMatch(lower);
+    ).firstMatch(stripped);
     if (whatCallsMatch != null) {
       final target = whatCallsMatch.group(1) ?? whatCallsMatch.group(2)!;
       return QueryIntent(
         kind: QueryIntentKind.whatCalls,
-        target: target,
+        target: target.trim(),
         rawQuery: query,
       );
     }
 
     // 6. Show flow / login flow
     final flowMatch = RegExp(
-      r'^(?:show\s+(?:the\s+)?([a-zA-Z0-9_]+)\s+flow|([a-zA-Z0-9_]+)\s+flow)\??$',
+      r'^(?:show\s+(?:the\s+)?(.+?)\s+flow|(.+?)\s+flow)\??$',
       caseSensitive: false,
-    ).firstMatch(lower);
+    ).firstMatch(stripped);
     if (flowMatch != null) {
       final flowName = flowMatch.group(1) ?? flowMatch.group(2)!;
       return QueryIntent(
         kind: QueryIntentKind.showFlow,
-        target: flowName,
+        target: flowName.trim(),
         rawQuery: query,
       );
     }
 
     // 7. Show files related to X
     final relatedMatch = RegExp(
-      r'^(?:show files related to|files related to|show related to|related to)\s+([a-zA-Z0-9_.]+)\??$',
+      r'^(?:show files related to|files related to|show related to|related to)\s+(.+?)\??$',
       caseSensitive: false,
-    ).firstMatch(lower);
+    ).firstMatch(stripped);
     if (relatedMatch != null) {
       return QueryIntent(
         kind: QueryIntentKind.relatedTo,
-        target: relatedMatch.group(1)!,
+        target: relatedMatch.group(1)!.trim(),
         rawQuery: query,
       );
     }
@@ -176,26 +237,61 @@ class QueryEngine {
     }
   }
 
+  List<CodeSymbol> _lookupSymbolsForTarget(String target) {
+    final candidates = _generateCandidates(target);
+    for (final cand in candidates) {
+      final direct = symbolTable.findByName(cand);
+      if (direct.isNotEmpty) return direct;
+
+      final byQ = symbolTable.findByQualifiedName(cand);
+      if (byQ.isNotEmpty) return byQ;
+    }
+
+    // Fuzzy search across candidates
+    for (final cand in candidates) {
+      final fuzzy = symbolTable.search(cand);
+      if (fuzzy.isNotEmpty) return fuzzy;
+    }
+
+    return const [];
+  }
+
+  List<GraphNode> _lookupNodesForTarget(String target) {
+    final candidates = _generateCandidates(target);
+    for (final cand in candidates) {
+      final direct = graph.findNodesByLabel(cand);
+      if (direct.isNotEmpty) return direct;
+    }
+
+    for (final cand in candidates) {
+      final fuzzy = graph.searchNodes(cand);
+      if (fuzzy.isNotEmpty) return fuzzy;
+    }
+
+    return const [];
+  }
+
   QueryResult _handleWhereIs(QueryIntent intent) {
     final target = intent.target;
-    final symbols = symbolTable.findByName(target).isNotEmpty
-        ? symbolTable.findByName(target)
-        : symbolTable.findByQualifiedName(target);
+    final symbols = _lookupSymbolsForTarget(target);
 
     if (symbols.isEmpty) {
-      final fuzzy = symbolTable.search(target);
-      if (fuzzy.isNotEmpty) {
-        final first = fuzzy.first;
+      final nodes = _lookupNodesForTarget(target);
+      if (nodes.isNotEmpty) {
+        final node = nodes.first;
+        final loc = node.location;
+        final disp = loc != null ? loc.displayString : (node.filePath ?? node.label);
         return QueryResult(
           query: intent.rawQuery,
           intent: 'where_is',
-          title: first.qualifiedName,
-          summary: 'Found matching symbol "${first.qualifiedName}" in ${first.location.displayString}',
-          directAnswer: first.location.displayString,
-          sourceLocation: first.location,
+          title: node.label,
+          summary: 'Found matching node "${node.label}" in $disp',
+          directAnswer: disp,
+          sourceLocation: loc,
+          nodes: nodes,
           suggestedFollowups: [
-            'Who uses ${first.name}?',
-            'What does ${first.name} depend on?',
+            'Who uses ${node.label}?',
+            'What does ${node.label} depend on?',
           ],
         );
       }
@@ -232,9 +328,7 @@ class QueryEngine {
 
   QueryResult _handleWhoUses(QueryIntent intent) {
     final target = intent.target;
-    final targetNodes = graph.findNodesByLabel(target).isNotEmpty
-        ? graph.findNodesByLabel(target)
-        : graph.searchNodes(target);
+    final targetNodes = _lookupNodesForTarget(target);
 
     if (targetNodes.isEmpty) {
       return QueryResult(
@@ -267,9 +361,7 @@ class QueryEngine {
 
   QueryResult _handleWhatDependsOn(QueryIntent intent) {
     final target = intent.target;
-    final targetNodes = graph.findNodesByLabel(target).isNotEmpty
-        ? graph.findNodesByLabel(target)
-        : graph.searchNodes(target);
+    final targetNodes = _lookupNodesForTarget(target);
 
     if (targetNodes.isEmpty) {
       return QueryResult(
@@ -308,9 +400,7 @@ class QueryEngine {
 
   QueryResult _handleWhatCalls(QueryIntent intent) {
     final target = intent.target;
-    final targetNodes = graph.findNodesByLabel(target).isNotEmpty
-        ? graph.findNodesByLabel(target)
-        : graph.searchNodes(target);
+    final targetNodes = _lookupNodesForTarget(target);
 
     if (targetNodes.isEmpty) {
       return QueryResult(
@@ -347,9 +437,7 @@ class QueryEngine {
 
   QueryResult _handleWhoCalls(QueryIntent intent) {
     final target = intent.target;
-    final targetNodes = graph.findNodesByLabel(target).isNotEmpty
-        ? graph.findNodesByLabel(target)
-        : graph.searchNodes(target);
+    final targetNodes = _lookupNodesForTarget(target);
 
     if (targetNodes.isEmpty) {
       return QueryResult(
@@ -386,7 +474,7 @@ class QueryEngine {
 
   QueryResult _handleShowFlow(QueryIntent intent) {
     final flowName = intent.target.toLowerCase(); // e.g. 'login'
-    final symbols = symbolTable.search(flowName);
+    final symbols = _lookupSymbolsForTarget(flowName);
 
     // Prioritize Page/Screen/View classes
     final pages = symbols.where((s) =>
@@ -460,7 +548,7 @@ class QueryEngine {
 
   QueryResult _handleRelatedTo(QueryIntent intent) {
     final target = intent.target;
-    final matchingSymbols = symbolTable.search(target);
+    final matchingSymbols = _lookupSymbolsForTarget(target);
     final files = <String>{};
 
     for (final s in matchingSymbols) {
@@ -523,8 +611,8 @@ class QueryEngine {
 
   QueryResult _handleGeneralSearch(QueryIntent intent) {
     final query = intent.target;
-    final symbols = symbolTable.search(query);
-    final nodes = graph.searchNodes(query);
+    final symbols = _lookupSymbolsForTarget(query);
+    final nodes = _lookupNodesForTarget(query);
 
     if (symbols.isEmpty && nodes.isEmpty) {
       return QueryResult(

@@ -1,7 +1,9 @@
 import * as cp from 'child_process';
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
-import * as vscode from 'vscode';
 import * as readline from 'readline';
+import * as vscode from 'vscode';
 
 export interface ProjectSummary {
   files: number;
@@ -38,11 +40,80 @@ export class AnalyzerClient {
   private process: cp.ChildProcess | null = null;
   private pendingRequests = new Map<number, (res: any) => void>();
   private requestId = 0;
-  private analyzerPath: string;
+  private standaloneBinaryPath: string | null = null;
+  private analyzerScriptPath: string | null = null;
+  private dartExecutable: string = 'dart';
 
   constructor(private extensionPath: string) {
-    // Find analyzer/bin/code_map.dart relative to extension or monorepo root
-    this.analyzerPath = path.resolve(extensionPath, '..', 'analyzer', 'bin', 'code_map.dart');
+    this.discoverExecutables();
+  }
+
+  private discoverExecutables(): void {
+    const home = os.homedir();
+
+    // 1. Check for standalone compiled binary inside extension
+    const binName = process.platform === 'win32' ? 'code_map.exe' : 'code_map';
+    const localBin = path.join(this.extensionPath, 'bin', binName);
+    if (fs.existsSync(localBin)) {
+      try {
+        fs.chmodSync(localBin, 0o755);
+      } catch (_) {}
+      this.standaloneBinaryPath = localBin;
+    }
+
+    // 2. Check for analyzer script path
+    const candidateScriptPaths = [
+      path.join(this.extensionPath, 'analyzer', 'bin', 'code_map.dart'),
+      path.resolve(this.extensionPath, '..', 'analyzer', 'bin', 'code_map.dart'),
+    ];
+    for (const p of candidateScriptPaths) {
+      if (fs.existsSync(p)) {
+        this.analyzerScriptPath = p;
+        break;
+      }
+    }
+
+    // 3. Discover Dart/Flutter SDK executable
+    const customDartSdk = vscode.workspace.getConfiguration('dart').get<string>('sdkPath');
+    const customFlutterSdk = vscode.workspace.getConfiguration('dart').get<string>('flutterSdkPath');
+
+    const candidateDartPaths = [
+      customDartSdk ? path.join(customDartSdk, 'bin', 'dart') : null,
+      customFlutterSdk ? path.join(customFlutterSdk, 'bin', 'dart') : null,
+      customFlutterSdk ? path.join(customFlutterSdk, 'bin', 'cache', 'dart-sdk', 'bin', 'dart') : null,
+      '/opt/homebrew/bin/dart',
+      '/usr/local/bin/dart',
+      path.join(home, 'Developement', 'flutter', 'bin', 'dart'),
+      path.join(home, 'Development', 'flutter', 'bin', 'dart'),
+      path.join(home, 'flutter', 'bin', 'dart'),
+      path.join(home, 'fvm', 'default', 'bin', 'dart'),
+      path.join(home, '.pub-cache', 'bin', 'dart'),
+    ].filter((p): p is string => Boolean(p && fs.existsSync(p)));
+
+    if (candidateDartPaths.length > 0) {
+      this.dartExecutable = candidateDartPaths[0];
+    }
+  }
+
+  private getSpawnCommandAndArgs(subCommand: string, subArgs: string[] = []): { cmd: string; args: string[]; cwd: string } {
+    this.discoverExecutables();
+
+    if (this.standaloneBinaryPath && fs.existsSync(this.standaloneBinaryPath)) {
+      return {
+        cmd: this.standaloneBinaryPath,
+        args: [subCommand, ...subArgs],
+        cwd: this.extensionPath,
+      };
+    }
+
+    const scriptPath = this.analyzerScriptPath || path.resolve(this.extensionPath, '..', 'analyzer', 'bin', 'code_map.dart');
+    const analyzerDir = path.dirname(path.dirname(scriptPath));
+
+    return {
+      cmd: this.dartExecutable,
+      args: ['run', scriptPath, subCommand, ...subArgs],
+      cwd: analyzerDir,
+    };
   }
 
   public async startServer(projectPath: string): Promise<void> {
@@ -50,11 +121,16 @@ export class AnalyzerClient {
       this.stopServer();
     }
 
-    const dartCmd = 'dart';
-    const args = ['run', this.analyzerPath, 'serve'];
+    const { cmd, args, cwd } = this.getSpawnCommandAndArgs('serve');
 
-    this.process = cp.spawn(dartCmd, args, {
-      cwd: path.resolve(this.extensionPath, '..', 'analyzer'),
+    const env = {
+      ...process.env,
+      PATH: `${path.dirname(this.dartExecutable)}:/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ''}`,
+    };
+
+    this.process = cp.spawn(cmd, args, {
+      cwd,
+      env,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
@@ -85,7 +161,6 @@ export class AnalyzerClient {
       this.process = null;
     });
 
-    // Initial analysis
     await this.analyze(projectPath);
   }
 
@@ -117,7 +192,6 @@ export class AnalyzerClient {
   private sendRequest(payload: any): Promise<any> {
     return new Promise((resolve, reject) => {
       if (!this.process || !this.process.stdin) {
-        // Fallback: spawn one-off CLI command
         this.runOneOffCommand(payload).then(resolve).catch(reject);
         return;
       }
@@ -137,33 +211,38 @@ export class AnalyzerClient {
 
   private runOneOffCommand(payload: any): Promise<any> {
     return new Promise((resolve, reject) => {
-      let args: string[] = [];
-      const cwd = path.resolve(this.extensionPath, '..', 'analyzer');
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      const root = workspaceFolders ? workspaceFolders[0].uri.fsPath : '.';
 
-      if (payload.cmd === 'analyze') {
-        args = ['run', this.analyzerPath, 'analyze', payload.path || '.'];
-      } else if (payload.cmd === 'query') {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        const root = workspaceFolders ? workspaceFolders[0].uri.fsPath : '.';
-        args = ['run', this.analyzerPath, 'query', root, payload.query];
+      let subCmd = 'analyze';
+      let subArgs: string[] = [payload.path || root];
+
+      if (payload.cmd === 'query') {
+        subCmd = 'query';
+        subArgs = [root, payload.query];
       } else if (payload.cmd === 'graph') {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        const root = workspaceFolders ? workspaceFolders[0].uri.fsPath : '.';
-        args = ['run', this.analyzerPath, 'graph', root];
-      } else {
+        subCmd = 'graph';
+        subArgs = [root];
+      } else if (payload.cmd === 'update') {
         resolve({ status: 'ok' });
         return;
       }
 
-      cp.execFile('dart', args, { cwd }, (error, stdout) => {
+      const { cmd, args, cwd } = this.getSpawnCommandAndArgs(subCmd, subArgs);
+      const env = {
+        ...process.env,
+        PATH: `${path.dirname(this.dartExecutable)}:/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ''}`,
+      };
+
+      cp.execFile(cmd, args, { cwd, env, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
         if (error) {
-          reject(error);
+          reject(new Error(stderr || error.message));
         } else {
           try {
             const data = JSON.parse(stdout.trim());
             resolve({ status: 'ok', data });
           } catch (e) {
-            reject(e);
+            reject(new Error(`Failed to parse analyzer output: ${stdout}`));
           }
         }
       });
